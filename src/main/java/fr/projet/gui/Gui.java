@@ -40,6 +40,8 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 public class Gui extends Application {
@@ -184,6 +186,7 @@ public class Gui extends Application {
         }
         stage.setScene(GuiScene.home(Gui::handleButtonClick));
         stage.setTitle("Shannon Game");
+        stage.setMaximized(true);
         URL url = getClass().getResource("/icon-appli.png");
         if(url == null) {
             log.error("No icon");
@@ -282,10 +285,10 @@ public class Gui extends Application {
                 Gui.nbVertices = 4;
                 List<Vertex> vertices = new ArrayList<>() {
                     {
-                        add(new Vertex(UtilsGui.WINDOW_WIDTH / 2 - 200, UtilsGui.WINDOW_HEIGHT / 2 - 200));
-                        add(new Vertex(UtilsGui.WINDOW_WIDTH / 2 + 200, UtilsGui.WINDOW_HEIGHT / 2 - 200));
-                        add(new Vertex(UtilsGui.WINDOW_WIDTH / 2 - 200, UtilsGui.WINDOW_HEIGHT / 2 + 200));
-                        add(new Vertex(UtilsGui.WINDOW_WIDTH / 2 + 200, UtilsGui.WINDOW_HEIGHT / 2 + 200));
+                        add(new Vertex(UtilsGui.WINDOW_WIDTH / 2 - 200, UtilsGui.WINDOW_HEIGHT / 2 - 200, 0));
+                        add(new Vertex(UtilsGui.WINDOW_WIDTH / 2 + 200, UtilsGui.WINDOW_HEIGHT / 2 - 200, 1));
+                        add(new Vertex(UtilsGui.WINDOW_WIDTH / 2 - 200, UtilsGui.WINDOW_HEIGHT / 2 + 200, 2));
+                        add(new Vertex(UtilsGui.WINDOW_WIDTH / 2 + 200, UtilsGui.WINDOW_HEIGHT / 2 + 200, 3));
                     }
                 };
                 Map<Vertex, HashSet<Vertex>> adjVertices = new HashMap<>() {{
@@ -626,9 +629,104 @@ public class Gui extends Application {
         }
     }
 
+    private static void toLinearProblem(Graph graph) {
+        StringBuilder s0 = new StringBuilder("Minimize\n");
+        for (int i = 0; i < graph.getNbVertices(); i++) {
+            s0.append("+w").append(i);
+        }
+        s0.append("\nSubject To\n");
+        for (int i = 0; i < graph.getNbVertices(); i++) {
+            for (int j = 0; j < graph.getNbVertices(); j++) {
+                s0.append("+" + "node").append(i).append("_").append(j);
+            }
+            s0.append(" = 1\n");
+        }
+        for (int i = 0; i < graph.getNbVertices(); i++) {
+            for (int j = 0; j < graph.getNbVertices(); j++) {
+                s0.append("node").append(i).append("_").append(j).append(" - w").append(j).append(" <= 0\n");
+            }
+        }
+
+        for (Pair<Vertex, Vertex> neighbor : graph.getEdges()){
+            for (int i = 0; i < graph.getNbVertices(); i++) {
+                s0.append("node").append(neighbor.getKey().getId()).append("_").append(i).append(" + node").append(neighbor.getValue().getId()).append("_").append(i).append(" <= 1\n");
+            }
+        }
+        s0.append("Integer\n");
+        for (int i = 0; i < graph.getNbVertices(); i++) {
+            for (int j = 0; j < graph.getNbVertices(); j++) {
+                s0.append("node").append(i).append("_").append(j).append("\n");
+            }
+            s0.append("w").append(i).append("\n");
+        }
+        s0.append("End");
+        try {
+            BufferedWriter writer = new BufferedWriter(new FileWriter("linear.lp"));
+            writer.write(String.valueOf(s0));
+            writer.close();
+        }
+        catch (Exception e) {}
+
+        try {
+            List<String> command = Arrays.asList(
+                    "C:\\Program Files\\SCIPOptSuite 9.1.0\\bin\\scip.exe",
+                    "-f",
+                    "linear.lp"
+            );
+            ProcessBuilder processBuilder = new ProcessBuilder(command);
+            Process process = processBuilder.start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            List<String> outputLines = new ArrayList<>();
+
+            while ((line = reader.readLine()) != null) {
+                outputLines.add(line);
+            }
+
+            process.waitFor();
+            Map<String, Integer> wnMap = new HashMap<>();
+            List<String> nodes = new ArrayList<>();
+            Pattern wnPattern = Pattern.compile("w(\\d+)");
+            Pattern nodePattern = Pattern.compile("node(\\d+)_(\\d+)");
+            for (String outputLine : outputLines) {
+                if (outputLine.contains("objective value")) {
+                    continue;
+                }
+
+                Matcher wnMatcher = wnPattern.matcher(outputLine);
+                Matcher nodeMatcher = nodePattern.matcher(outputLine);
+
+                if (wnMatcher.find()) {
+                    wnMap.put("w" + wnMatcher.group(1), wnMap.size());
+                } else if (nodeMatcher.find()) {
+                    nodes.add(outputLine);
+                }
+            }
+            Map<Integer, Integer> newColorMapping = new HashMap<>();
+            for (String nodeLine : nodes) {
+                Matcher matcher = nodePattern.matcher(nodeLine);
+                if (matcher.find()) {
+                    int nodeId = Integer.parseInt(matcher.group(1));
+                    int wnValue = Integer.parseInt(matcher.group(2));
+                    int newColor = wnMap.get("w" + wnValue);
+                    newColorMapping.put(nodeId, newColor);
+                }
+            }
+            for (Vertex node : graph.getVertices()) {
+                if (newColorMapping.containsKey(node.getId())) {
+                    node.setColor(newColorMapping.get(node.getId()));
+                }
+            }
+        }
+        catch (Exception e) {
+            colorPlanarGraph(graph);
+        }
+    }
+
     public static void showGraph() {
         // Ajout des aretes sur l'affichage
         if (game == null) return; // Cas qui peut survenir si le serveur est off
+        toLinearProblem(game.getGraph());
         for (Pair<Vertex, Vertex> pair : Gui.game.getGraph().getEdges()) {
             int Ax = pair.getKey().getCoords().getKey();
             int Ay = pair.getKey().getCoords().getValue();
@@ -653,7 +751,6 @@ public class Gui extends Application {
             pane.getChildren().add(line);
             edges.add(new Pair<>(pair, line));
         }
-        colorPlanarGraph(game.getGraph());
         for (int i = 0; i < Gui.game.getGraph().getNbVertices(); i++) {
             Pair<Integer, Integer> coord = Gui.game.getGraph().getVertices().get(i).getCoords();
             // Un cercle pour représenter le sommet

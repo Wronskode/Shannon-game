@@ -99,7 +99,7 @@ public class Graph {
             iterCount++;
             // Coord aléatoire
             Vertex newVertex = new Vertex(random.nextInt(0, maxSize),
-                                          random.nextInt(0, maxSize));
+                                          random.nextInt(0, maxSize), getNbVertices());
             boolean distanceOk = true;
             for (Vertex v1: getVertices()) {
                 // Si la distance entre le sommet à placer est >= minDist de tous ses voisins, on le place

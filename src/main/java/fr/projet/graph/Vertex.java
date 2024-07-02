@@ -2,6 +2,7 @@ package fr.projet.graph;
 
 import javafx.util.Pair;
 import lombok.Data;
+import lombok.Getter;
 import lombok.experimental.Accessors;
 
 @Accessors(chain = true)
@@ -9,13 +10,17 @@ import lombok.experimental.Accessors;
 public class Vertex {
     private Pair<Integer, Integer> coords;
     private int color = 0;
+    @Getter
+    private int id;
 
-    public Vertex(int x, int y) {
+    public Vertex(int x, int y, int id) {
         this.coords = new Pair<>(x, y);
+        this.id = id;
     }
 
-    public Vertex(double x, double y) {
+    public Vertex(double x, double y, int id) {
         this.coords = new Pair<>((int) x, (int) y);
+        this.id = id;
     }
 
     public int getX() {
